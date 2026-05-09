@@ -25,76 +25,47 @@ end entity i2c_master;
 
 -- Note that normal mode is 100kbps
 architecture A1 of i2c_master is
-	-- States
-	type i2c_state is (idle, start_sda, start_scl, address, rw, a_ack, data, d_ack);
-	signal p_state, n_state: i2c_state := idle;
+	-- State stuff
+	type i2c_state is (idle, sda_low, scl_low, address, transaction_type, ack_a, data, data_a)
+	signal current_state: i2c_state := idle;
 
-	-- Registers for control data
-	signal address_reg: std_logic_vector(6 downto 0) := (others => '0');
-	signal data_reg: std_logic_vector(7 downto 0) := (others => '0');
-	signal rw_reg: std_logic := '0'; 	
-
-	-- Control of tri state buffer for SDA
-	signal sda_out_ctrl: std_logic := '1';
-	signal sda_drive: std_logic := '1';
+	-- Buf controls
+	signal sda_ctrl, scl_strl: std_logic := '0';
 begin
-	-- Tri state buffer, output is data we want to drive when 
-	sda <= sda_drive when sda_out_ctrl='1' else 'Z';
+	sda <= '0' when sda_ctrl='1' else 'Z';
+	scl <= '0' when scl_ctrl='1' else 'Z';
 
-	register_data: process (clk) 
+	i2c_proc: process(clk) 
 	begin
 		if rising_edge(clk) then
 			if rst='1' then
-				address_reg <= (others => '0');
-				data_reg <= (others => '0');
-				rw_reg <= (others => '0');
+				current_state <= idle;
+				sda_ctrl <= '0';
+				scl_ctrl <= '0';	
 			else
-				if start_flag='1' then
-					address_reg <= address_in;
-					data_reg <= data_in;
-					rw_reg <= transation_type_in;
-				end if;
+				current_state <= idle;
+				case current_state is
+					when idle =>
+						sda_ctrl <= '0';
+						scl_crtl <= '0';
+						if start_flag='1' then
+							current_state <= sda_low;
+							sda_ctrl <= '1';
+							-- Start counter signal=1 below
+						end if;
+
+					when sda_low =>
+						sda_ctrl <= '0';
+						-- If start counter signal=1 and count < 3 or something keep incrementing. If not move to SCL low:
+
+					when scl_low =>
+
+
+
+					when others =>
+						NULL;
+				end case;
 			end if;
-		end if;
-	end process register_data;
-
-	seq_state_proc: process(clk)
-	begin
-		if rising_edge(clk) then
-			if rst='1' then
-				p_state <= idle;
-			else
-				p_state <= n_state;	
-			end if;
-		end if;
-	end process state_proc;		
-
-	comb_proc: process(p_state, start_flag)
-	begin
-		case p_state is
-			when idle =>
-				if start_flag='1' then
-					n_state <= start_sda;
-				else
-					n_state <= idle;
-				end if;		
-			when start_sda =>
-				
-			when start_scl =>
-
-			when address =>
-
-			when rw =>
-
-			when a_ack =>
-
-			when data =>
-
-			when d_ack =>
-
-			when others =>
-				NULL;
-		end case;	
-	end process comb_proc;
-
+		end if;	
+	end process i2c_proc;
 end architecture A1;
