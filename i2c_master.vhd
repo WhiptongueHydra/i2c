@@ -139,7 +139,7 @@ begin
 				current_state <= idle;
 				case current_state is
 					when idle =>
-						counter_en = '0';
+						counter_en <= '0';
 						sda_ctrl <= '1';
 						scl_ctrl <= '1';
 						if start_flag='1' then
@@ -250,7 +250,7 @@ begin
 						else
 							if max_reached='1' then
 								scl_ctrl <= '0';
-								wait_a_flag='1';
+								wait_a_flag <= '1';
 							end if;
 						end if;
 				
@@ -273,7 +273,7 @@ begin
 
 						if max_reached='1' then
 							if data_index = 0 then
-								address_index <= 7;
+								data_index <= 7;
 								scl_ctrl <= '0';
 								current_state <= ack_d;
 							else
@@ -323,7 +323,7 @@ begin
 						else
 							if max_reached='1' then
 								scl_ctrl <= '0';
-								wait_d_flag='1';
+								wait_d_flag <= '1';
 							end if;
 						end if;
 
