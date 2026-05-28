@@ -16,9 +16,9 @@ end entity i2c_slave;
 
 architecture A1 of i2c_slave is
 	constant slave_addr: std_logic_vector(7 downto 0) := x"50";
-	constant slave_data: std_logic_vector(7 downto 0) := x"DE";
+	signal slave_data_reg: std_logic_vector(7 downto 0) := x"DE";
 
-	type i2c_slv_state is (idle, receiving_a, send_ack, receiving_d, send_ack);
+	type i2c_slv_state is (idle, receiving_a, ack_a, receiving_d, ack_d);
 	signal last_state, current_state: i2c_slv_state;
 
 	signal sda_ctrl: std_logic := '1';
@@ -26,7 +26,8 @@ architecture A1 of i2c_slave is
 
 	-- 	Edge detection
 	signal prev_scl: std_logic := '1';
-
+	signal edge_rise: std_logic := '0';
+	signal edge_fall: std_logic := '0';
 
 	-- 	I2C Ctrl Signals
 	-- Number of bytes - 1
@@ -36,6 +37,9 @@ architecture A1 of i2c_slave is
 	-- 0: write
 	-- 1: read
 	signal transaction_type: std_logic := '1';
+
+	-- Ack ctrl 
+	signal scl_low_detected: std_logic := '0';
 begin
 	sda <= 'Z' when sda_ctrl='1' else '0';
 
@@ -47,9 +51,15 @@ begin
 			else	
 				prev_scl <= scl;
 				if scl='1' and prev_scl='0' then
-					edge <= '1';
+					edge_rise <= '1';
 				else
-					edge <= '0';
+					edge_rise <= '0';
+				end if;
+
+				if scl='0' and prev_scl='1' then
+					edge_fall <= '1';
+				else
+					edge_fall <= '0';
 				end if;
 			end if;
 		end if;
@@ -72,7 +82,7 @@ begin
 
 					when receiving_a =>
 						current_state <= receiving_a;
-						if edge='1' then
+						if edge_rising='1' then
 							if byte_count < 8 then
 								addr_reg(byte_count) <= sda;
 								byte_count <= byte_count + 1;	
@@ -80,24 +90,60 @@ begin
 								transaction_type <= sda;
 								byte_count <= 0;
 								if addr_reg=slave_reg then
-									current_state <= ack;
+									current_state <= wait_scl_low;
 								else
 									current_state <= idle;
 								end if;
 							end if;
 						end if;
 
-					when ack =>
-						if edge='1' then
-							sda_ctrl <= '0';
+					-- This is so scuffed but it should work
+					when ack_a =>
+						current_state <= ack_a;
+						-- Pull low after SCL falling edge, keep low until next falling edge then deassert
+						if edge_fall='1' and scl_low_detected='0' then
+							scl_ctrl <= '0';
+							scl_low_detected <= '1';
+						elsif edge_fall='1' and scl_low_detected='1' then
+							scl_ctrl <= '1';
+							scl_low_detected <= '0';
+							current_state <= trans_type; 
+						else
+							scl_ctrl <= scl_ctrl;
+							scl_low_detected <= scl_low_detected;
+						end if;
 
-							if last_state=receiving_a then
 
+					when trans_type =>
+						-- Read
+						if transaction_type='1' then 
+							current_state <= read_out;	
+
+						-- Write
+						else
+							current_state <= write_in;
+
+						end if;			
+
+					when read_out =>
+						current_state <= receiving_a;
+						if edge_rising='1' then
+							if byte_count < 8 then
+								addr_reg(byte_count) <= sda;
+								byte_count <= byte_count + 1;	
 							else
-
+								transaction_type <= sda;
+								byte_count <= 0;
+								if addr_reg=slave_reg then
+									current_state <= wait_scl_low;
+								else
+									current_state <= idle;
+								end if;
 							end if;
 						end if;
 
+
+					when write_in =>
 
 
 					when others =>
