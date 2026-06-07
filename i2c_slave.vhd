@@ -3,6 +3,8 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
 
+-- Okay at present this module should be able to wait for a start con from master, validate the address recevied with its own address, and drive the ack
+
 entity i2c_slave is
 	port (
 		clk: in std_logic;
@@ -17,8 +19,9 @@ end entity i2c_slave;
 architecture A1 of i2c_slave is
 	constant slave_addr: std_logic_vector(7 downto 0) := x"50";
 	signal slave_data_reg: std_logic_vector(7 downto 0) := x"DE";
+	signal slave_data_reg_index: integer range 0 to 8 := 0;
 
-	type i2c_slv_state is (idle, receiving_a, ack_a, receiving_d, ack_d);
+	type i2c_slv_state is (idle, receiving_a, ack_a, trans_type, read_out);
 	signal last_state, current_state: i2c_slv_state;
 
 	signal sda_ctrl: std_logic := '1';
@@ -32,7 +35,7 @@ architecture A1 of i2c_slave is
 	-- 	I2C Ctrl Signals
 	-- Number of bytes - 1
 	constant max_byte_index: integer := 8;
-	signal byte_count: integer range 0 to 8 := 8; -- Seemed wasteful of the extra 1 bit 
+	signal byte_count: integer range 0 to 8 := 7; -- Seemed wasteful of the extra 1 bit 
 	signal addr_reg: std_logic_vector(7 downto 0);
 	-- 0: write
 	-- 1: read
@@ -75,7 +78,7 @@ begin
 				case current_state is
 					when idle =>
 						current_state <= idle;
-						sda_int <= '1';
+						sda_ctrl <= '1';
 						if scl='1' and sda='0' then
 							current_state <= receiving_a;
 						end if;					
@@ -84,13 +87,13 @@ begin
 						current_state <= receiving_a;
 						if edge_rising='1' then
 							if byte_count < 8 then
-								addr_reg(byte_count) <= sda;
+								addr_reg(7-byte_count) <= sda;
 								byte_count <= byte_count + 1;	
 							else
 								transaction_type <= sda;
 								byte_count <= 0;
 								if addr_reg=slave_reg then
-									current_state <= wait_scl_low;
+									current_state <= ack_a;
 								else
 									current_state <= idle;
 								end if;
@@ -102,14 +105,14 @@ begin
 						current_state <= ack_a;
 						-- Pull low after SCL falling edge, keep low until next falling edge then deassert
 						if edge_fall='1' and scl_low_detected='0' then
-							scl_ctrl <= '0';
+							sda_ctrl <= '0';
 							scl_low_detected <= '1';
 						elsif edge_fall='1' and scl_low_detected='1' then
-							scl_ctrl <= '1';
+							sda_ctrl <= '1';
 							scl_low_detected <= '0';
 							current_state <= trans_type; 
 						else
-							scl_ctrl <= scl_ctrl;
+							sda_ctrl <= scl_ctrl;
 							scl_low_detected <= scl_low_detected;
 						end if;
 
@@ -120,31 +123,25 @@ begin
 							current_state <= read_out;	
 
 						-- Write
+						-- transaction_type = '0'
 						else
-							current_state <= write_in;
+							current_state <= idle;
 
 						end if;			
 
 					when read_out =>
-						current_state <= receiving_a;
-						if edge_rising='1' then
-							if byte_count < 8 then
-								addr_reg(byte_count) <= sda;
-								byte_count <= byte_count + 1;	
-							else
-								transaction_type <= sda;
-								byte_count <= 0;
-								if addr_reg=slave_reg then
-									current_state <= wait_scl_low;
-								else
-									current_state <= idle;
-								end if;
-							end if;
-						end if;
-
-
-					when write_in =>
-
+						current_state <= read_out;
+						if slave_data_reg_index < 8 then		
+							sda_ctrl <= slave_data_reg(7-slave_data_reg_index);
+							-- Only changes data after clock is low
+							if edge_fall='1' then
+								slave_data_reg_index <= slave_data_reg_index+1; 
+							end if;			
+						else
+							current_state <= idle;
+							sda_ctrl <= '1'; 
+							slave_data_reg_index <= 1;
+						end if;	
 
 					when others =>
 						NULL;
